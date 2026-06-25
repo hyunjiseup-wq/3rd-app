@@ -16,6 +16,8 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     "pistol_grip_type": ["pistol_grip_type", "pistol_grip", "권총손잡이", "피스톨그립", "grip_type"],
     "stock_used": ["stock_used", "stock", "개머리판", "스톡", "st_used"],
     "stock_type": ["stock_type", "스톡종류", "개머리판종류"],
+    "optics_used": ["optics_used", "optics", "조준경", "스코프", "광학장비", "조준경사용"],
+    "optics_type": ["optics_type", "scope_type", "조준경종류", "스코프종류", "광학장비종류"],
     "shooting_grip": ["shooting_grip", "grip_style", "사격그립", "그립자세", "grip"],
     "stance": ["stance", "자세", "사격자세", "position"],
     "distance_m": ["distance_m", "distance", "거리", "사거리_m", "사거리", "dist_m", "dist"],
@@ -44,10 +46,10 @@ NUMERIC_COLS = [
     "temperature_2m", "relative_humidity_2m", "wind_speed_10m", "precipitation",
 ]
 
-BOOL_COLS = ["front_grip_used", "stock_used"]
+BOOL_COLS = ["front_grip_used", "stock_used", "optics_used"]
 
 CATEGORICAL_COLS = [
-    "pistol_grip_type", "stock_type", "shooting_grip", "stance",
+    "pistol_grip_type", "stock_type", "optics_type", "shooting_grip", "stance",
     "experience_level", "indoor_outdoor", "target_type",
 ]
 
@@ -105,13 +107,14 @@ def fill_missing(df: pd.DataFrame) -> pd.DataFrame:
             df["miss_count"] = (df["rounds_fired"] - df["hit_count"]).clip(lower=0)
 
     cat_defaults: dict[str, str] = {
-        "pistol_grip_type": "unknown",
-        "stock_type": "none",
-        "shooting_grip": "unknown",
-        "stance": "standing",
-        "experience_level": "beginner",
-        "indoor_outdoor": "outdoor",
-        "target_type": "static_paper",
+        "pistol_grip_type": "기타",
+        "stock_type": "없음",
+        "optics_type": "맨눈",
+        "shooting_grip": "기타",
+        "stance": "서서쏴",
+        "experience_level": "초보",
+        "indoor_outdoor": "실외",
+        "target_type": "고정표적",
     }
     for col, default in cat_defaults.items():
         if col in df.columns:

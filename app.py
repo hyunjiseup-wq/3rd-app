@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-from typing import Optional
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -27,7 +26,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# 추가 CSS (카드형 KPI, 여백 조정)
 st.markdown(
     """
     <style>
@@ -103,7 +101,9 @@ df_raw, is_dummy, load_messages = load_data(uploaded_files)
 
 # 날씨 API 연동
 with st.spinner("날씨 데이터 연동 중..."):
-    indoor_mask = (df_raw.get("indoor_outdoor", pd.Series(["outdoor"] * len(df_raw))) == "indoor")
+    indoor_mask = (
+        df_raw.get("indoor_outdoor", pd.Series(["실외"] * len(df_raw))) == "실내"
+    )
     df_enriched, api_success = enrich_with_weather(df_raw)
 
     if not api_success:
@@ -147,7 +147,7 @@ with col_s3:
     )
 with col_s4:
     api_cls = "badge-api-ok" if api_success else "badge-api-fail"
-    api_txt = "API 연결 성공" if api_success else "API 연결 실패"
+    api_txt = "날씨 API 연결됨" if api_success else "날씨 API 실패"
     st.markdown(
         f'<div class="kpi-card"><span class="status-badge {api_cls}">{api_txt}</span>'
         f'<div class="kpi-label">Open-Meteo 날씨 API</div></div>',
@@ -163,7 +163,7 @@ if is_dummy:
 
 if not api_success:
     st.warning(
-        "외부 날씨 API 연결 실패: 더미/기존 값을 사용합니다. "
+        "외부 날씨 API 연결 실패 — 더미/기존 날씨 값을 사용합니다. "
         "(인터넷 연결을 확인하거나 잠시 후 다시 시도하세요.)",
         icon="⚠️",
     )
@@ -179,7 +179,7 @@ st.markdown("---")
 with st.sidebar:
     st.header("🔧 필터")
 
-    # 날짜
+    # 날짜 범위
     if "date" in df.columns:
         dates_valid = pd.to_datetime(df["date"], errors="coerce").dropna()
         if not dates_valid.empty:
@@ -200,12 +200,13 @@ with st.sidebar:
     exp_sel = st.multiselect("숙련도", options=exp_opts, default=exp_opts)
 
     # 전방손잡이
-    fg_opts = ["전체", "사용 (True)", "미사용 (False)"]
-    fg_sel = st.selectbox("전방손잡이 사용", fg_opts)
+    fg_sel = st.selectbox("전방손잡이 사용 여부", ["전체", "사용", "미사용"])
 
     # 개머리판
-    st_opts = ["전체", "사용 (True)", "미사용 (False)"]
-    st_sel = st.selectbox("개머리판 사용", st_opts)
+    st_sel = st.selectbox("개머리판 사용 여부", ["전체", "사용", "미사용"])
+
+    # 조준경
+    op_sel = st.selectbox("조준경 사용 여부", ["전체", "사용", "미사용"])
 
     # 사격 그립
     grip_opts = sorted(df["shooting_grip"].dropna().unique().tolist()) if "shooting_grip" in df.columns else []
@@ -234,12 +235,13 @@ def apply_filters(data: pd.DataFrame) -> pd.DataFrame:
         d = d[d["experience_level"].isin(exp_sel)]
 
     if fg_sel != "전체" and "front_grip_used" in d.columns:
-        fg_val = True if "True" in fg_sel else False
-        d = d[d["front_grip_used"] == fg_val]
+        d = d[d["front_grip_used"] == (fg_sel == "사용")]
 
     if st_sel != "전체" and "stock_used" in d.columns:
-        st_val = True if "True" in st_sel else False
-        d = d[d["stock_used"] == st_val]
+        d = d[d["stock_used"] == (st_sel == "사용")]
+
+    if op_sel != "전체" and "optics_used" in d.columns:
+        d = d[d["optics_used"] == (op_sel == "사용")]
 
     if grip_sel and "shooting_grip" in d.columns:
         d = d[d["shooting_grip"].isin(grip_sel)]
@@ -273,9 +275,9 @@ def kpi_card(label: str, value: str) -> str:
 
 kpi_cols = st.columns(6)
 kpis = [
-    ("평균 정확도 (%)", f'{dff["accuracy_pct"].mean():.1f}' if "accuracy_pct" in dff else "—"),
-    ("평균 shots/sec", f'{dff["shots_per_sec"].mean():.2f}' if "shots_per_sec" in dff else "—"),
-    ("평균 split time (s)", f'{dff["split_time_sec"].mean():.3f}' if "split_time_sec" in dff else "—"),
+    ("평균 명중률 (%)", f'{dff["accuracy_pct"].mean():.1f}' if "accuracy_pct" in dff else "—"),
+    ("평균 초당 발사 수", f'{dff["shots_per_sec"].mean():.2f}' if "shots_per_sec" in dff else "—"),
+    ("평균 분할 시간 (초)", f'{dff["split_time_sec"].mean():.3f}' if "split_time_sec" in dff else "—"),
     ("평균 탄착군 (cm)", f'{dff["avg_group_size_cm"].mean():.1f}' if "avg_group_size_cm" in dff else "—"),
     ("총 세션 수", f'{len(dff):,}'),
     ("총 플레이어 수", f'{dff["player_id"].nunique():,}' if "player_id" in dff else "—"),
@@ -290,28 +292,32 @@ st.markdown("---")
 # ──────────────────────────────────────────────
 st.markdown("## 3. 장비 사용 여부별 성능 비교")
 
-tab_fg, tab_st = st.tabs(["전방손잡이 (Front Grip)", "개머리판 (Stock)"])
+tab_fg, tab_st, tab_op = st.tabs(["전방손잡이", "개머리판", "조준경"])
 
 with tab_fg:
     if "front_grip_used" in dff.columns and not dff["front_grip_used"].isna().all():
         c1, c2 = st.columns(2)
         with c1:
             if "accuracy_pct" in dff.columns:
-                fig = make_grouped_bar_bool(dff, "front_grip_used", "accuracy_pct",
-                                            "전방손잡이 사용 여부 × 정확도 (%)",
-                                            "전방손잡이 사용", "전방손잡이 미사용")
+                fig = make_grouped_bar_bool(
+                    dff, "front_grip_used", "accuracy_pct",
+                    "전방손잡이 사용 여부 × 명중률 (%)",
+                    "사용", "미사용",
+                )
                 st.plotly_chart(fig)
         with c2:
             if "shots_per_sec" in dff.columns:
-                fig = make_grouped_bar_bool(dff, "front_grip_used", "shots_per_sec",
-                                            "전방손잡이 사용 여부 × shots/sec",
-                                            "전방손잡이 사용", "전방손잡이 미사용")
+                fig = make_grouped_bar_bool(
+                    dff, "front_grip_used", "shots_per_sec",
+                    "전방손잡이 사용 여부 × 초당 발사 수",
+                    "사용", "미사용",
+                )
                 st.plotly_chart(fig)
 
         if "split_time_sec" in dff.columns:
             fig = make_box_chart(
                 dff, x="front_grip_used", y="split_time_sec",
-                title="전방손잡이 사용 여부별 split time 분포",
+                title="전방손잡이 사용 여부별 분할 시간 분포",
                 color="front_grip_used",
             )
             st.plotly_chart(fig)
@@ -323,18 +329,76 @@ with tab_st:
         c1, c2 = st.columns(2)
         with c1:
             if "avg_group_size_cm" in dff.columns:
-                fig = make_grouped_bar_bool(dff, "stock_used", "avg_group_size_cm",
-                                            "개머리판 사용 여부 × 평균 탄착군 크기 (cm)",
-                                            "개머리판 사용", "개머리판 미사용")
+                fig = make_grouped_bar_bool(
+                    dff, "stock_used", "avg_group_size_cm",
+                    "개머리판 사용 여부 × 평균 탄착군 크기 (cm)",
+                    "사용", "미사용",
+                )
                 st.plotly_chart(fig)
         with c2:
             if "accuracy_pct" in dff.columns:
-                fig = make_grouped_bar_bool(dff, "stock_used", "accuracy_pct",
-                                            "개머리판 사용 여부 × 정확도 (%)",
-                                            "개머리판 사용", "개머리판 미사용")
+                fig = make_grouped_bar_bool(
+                    dff, "stock_used", "accuracy_pct",
+                    "개머리판 사용 여부 × 명중률 (%)",
+                    "사용", "미사용",
+                )
                 st.plotly_chart(fig)
     else:
         st.info("stock_used 컬럼이 없거나 필터 후 데이터가 없습니다.")
+
+with tab_op:
+    if "optics_used" in dff.columns and not dff["optics_used"].isna().all():
+        c1, c2 = st.columns(2)
+        with c1:
+            if "accuracy_pct" in dff.columns:
+                fig = make_grouped_bar_bool(
+                    dff, "optics_used", "accuracy_pct",
+                    "조준경 사용 여부 × 명중률 (%)",
+                    "사용", "미사용",
+                )
+                st.plotly_chart(fig)
+        with c2:
+            if "avg_group_size_cm" in dff.columns:
+                fig = make_grouped_bar_bool(
+                    dff, "optics_used", "avg_group_size_cm",
+                    "조준경 사용 여부 × 평균 탄착군 크기 (cm)",
+                    "사용", "미사용",
+                )
+                st.plotly_chart(fig)
+
+        if "optics_type" in dff.columns:
+            optics_agg = (
+                dff.groupby("optics_type")[
+                    [c for c in ["accuracy_pct", "avg_group_size_cm"] if c in dff.columns]
+                ]
+                .mean()
+                .reset_index()
+            )
+            oc1, oc2 = st.columns(2)
+            with oc1:
+                if "accuracy_pct" in optics_agg.columns:
+                    fig = make_bar_chart(
+                        optics_agg, x="optics_type", y="accuracy_pct",
+                        title="조준경 종류별 평균 명중률 (%)",
+                    )
+                    st.plotly_chart(fig)
+            with oc2:
+                if "avg_group_size_cm" in optics_agg.columns:
+                    fig = make_bar_chart(
+                        optics_agg, x="optics_type", y="avg_group_size_cm",
+                        title="조준경 종류별 평균 탄착군 크기 (cm)",
+                    )
+                    st.plotly_chart(fig)
+
+            if "accuracy_pct" in dff.columns:
+                fig = make_box_chart(
+                    dff, x="optics_type", y="accuracy_pct",
+                    title="조준경 종류별 명중률 분포",
+                    color="optics_type",
+                )
+                st.plotly_chart(fig)
+    else:
+        st.info("optics_used 컬럼이 없거나 필터 후 데이터가 없습니다.")
 
 st.markdown("---")
 
@@ -352,39 +416,38 @@ if "shooting_grip" in dff.columns:
         .reset_index()
     )
 
-    metric_tabs = []
+    metric_tabs: list[str] = []
     if "accuracy_pct" in grip_agg.columns:
-        metric_tabs.append("정확도")
+        metric_tabs.append("명중률")
     if "split_time_sec" in grip_agg.columns:
-        metric_tabs.append("split time")
+        metric_tabs.append("분할 시간")
     if "shots_per_sec" in grip_agg.columns:
-        metric_tabs.append("shots/sec")
+        metric_tabs.append("초당 발사 수")
 
     if metric_tabs:
         tabs = st.tabs(metric_tabs)
         tab_map = dict(zip(metric_tabs, tabs))
 
-        if "정확도" in tab_map and "accuracy_pct" in grip_agg.columns:
-            with tab_map["정확도"]:
+        if "명중률" in tab_map and "accuracy_pct" in grip_agg.columns:
+            with tab_map["명중률"]:
                 fig = make_bar_chart(grip_agg, x="shooting_grip", y="accuracy_pct",
-                                     title="사격 그립별 평균 정확도 (%)")
+                                     title="사격 그립별 평균 명중률 (%)")
                 st.plotly_chart(fig)
-                if "accuracy_pct" in dff.columns:
-                    fig2 = make_violin_chart(dff, x="shooting_grip", y="accuracy_pct",
-                                             title="사격 그립별 정확도 분포",
-                                             color="shooting_grip")
-                    st.plotly_chart(fig2)
+                fig2 = make_violin_chart(dff, x="shooting_grip", y="accuracy_pct",
+                                         title="사격 그립별 명중률 분포",
+                                         color="shooting_grip")
+                st.plotly_chart(fig2)
 
-        if "split time" in tab_map and "split_time_sec" in grip_agg.columns:
-            with tab_map["split time"]:
+        if "분할 시간" in tab_map and "split_time_sec" in grip_agg.columns:
+            with tab_map["분할 시간"]:
                 fig = make_bar_chart(grip_agg, x="shooting_grip", y="split_time_sec",
-                                     title="사격 그립별 평균 split time (초)")
+                                     title="사격 그립별 평균 분할 시간 (초)")
                 st.plotly_chart(fig)
 
-        if "shots/sec" in tab_map and "shots_per_sec" in grip_agg.columns:
-            with tab_map["shots/sec"]:
+        if "초당 발사 수" in tab_map and "shots_per_sec" in grip_agg.columns:
+            with tab_map["초당 발사 수"]:
                 fig = make_bar_chart(grip_agg, x="shooting_grip", y="shots_per_sec",
-                                     title="사격 그립별 평균 shots/sec")
+                                     title="사격 그립별 평균 초당 발사 수")
                 st.plotly_chart(fig)
 else:
     st.info("shooting_grip 컬럼이 없습니다.")
@@ -401,7 +464,7 @@ with env_c1:
     if "wind_speed_10m" in dff.columns and "accuracy_pct" in dff.columns:
         fig = make_scatter_chart(
             dff, x="wind_speed_10m", y="accuracy_pct",
-            title="풍속 × 정확도 (실내/실외 구분)",
+            title="풍속 × 명중률 (실내/실외 구분)",
             color="indoor_outdoor" if "indoor_outdoor" in dff.columns else None,
             trendline=True, opacity=0.55,
         )
@@ -411,7 +474,7 @@ with env_c2:
     if "temperature_2m" in dff.columns and "shots_per_sec" in dff.columns:
         fig = make_scatter_chart(
             dff, x="temperature_2m", y="shots_per_sec",
-            title="기온 × shots/sec (실내/실외 구분)",
+            title="기온 × 초당 발사 수 (실내/실외 구분)",
             color="indoor_outdoor" if "indoor_outdoor" in dff.columns else None,
             trendline=True, opacity=0.55,
         )
@@ -420,8 +483,10 @@ with env_c2:
 if "distance_m" in dff.columns and "accuracy_pct" in dff.columns:
     fig = make_scatter_chart(
         dff, x="distance_m", y="accuracy_pct",
-        title="사격 거리 × 정확도",
-        color="experience_level" if "experience_level" in dff.columns else None,
+        title="사격 거리 × 명중률 (숙련도·조준경 구분)",
+        color="optics_used" if "optics_used" in dff.columns else (
+            "experience_level" if "experience_level" in dff.columns else None
+        ),
         trendline=True, opacity=0.55,
     )
     st.plotly_chart(fig)
@@ -429,7 +494,7 @@ if "distance_m" in dff.columns and "accuracy_pct" in dff.columns:
 st.markdown("---")
 
 # ──────────────────────────────────────────────
-# 섹션 6: 원본/정제 데이터 미리보기 및 다운로드
+# 섹션 6: 데이터 미리보기 및 다운로드
 # ──────────────────────────────────────────────
 st.markdown("## 6. 데이터 미리보기")
 
@@ -470,13 +535,15 @@ with st.expander("컬럼 설명"):
         | 컬럼 | 설명 |
         |------|------|
         | `front_grip_used` | 전방손잡이(포어그립) 사용 여부 |
-        | `pistol_grip_type` | 권총손잡이 유형 (standard/ergonomic/vertical_angle) |
+        | `pistol_grip_type` | 권총손잡이 유형 (표준형/인체공학형/수직각도형) |
         | `stock_used` | 개머리판(스톡) 사용 여부 |
-        | `stock_type` | 개머리판 유형 (fixed/adjustable/folding/none) |
-        | `shooting_grip` | 사격 그립 자세 (c-clamp/magwell/traditional 등) |
-        | `accuracy_pct` | 명중률 (%) = hit_count / rounds_fired × 100 |
-        | `shots_per_sec` | 초당 사격 수 |
-        | `split_time_sec` | 연속 사격 간격 (초) |
+        | `stock_type` | 개머리판 유형 (고정형/조절형/접이식/없음) |
+        | `optics_used` | 조준경 사용 여부 |
+        | `optics_type` | 조준경 종류 (단렌즈 스코프/복합 조준경/홀로사이트/도트사이트/맨눈) |
+        | `shooting_grip` | 사격 그립 자세 (C-클램프/매그웰/전통형 등) |
+        | `accuracy_pct` | 명중률 (%) = 명중수 / 발사수 × 100 |
+        | `shots_per_sec` | 초당 발사 수 |
+        | `split_time_sec` | 연속 사격 분할 시간 (초) |
         | `avg_group_size_cm` | 평균 탄착군 크기 (cm) |
         | `temperature_2m` | 지상 2m 기온 (°C) |
         | `wind_speed_10m` | 지상 10m 풍속 (m/s) |
