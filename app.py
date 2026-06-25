@@ -300,13 +300,13 @@ with tab_fg:
                 fig = make_grouped_bar_bool(dff, "front_grip_used", "accuracy_pct",
                                             "전방손잡이 사용 여부 × 정확도 (%)",
                                             "전방손잡이 사용", "전방손잡이 미사용")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
         with c2:
             if "shots_per_sec" in dff.columns:
                 fig = make_grouped_bar_bool(dff, "front_grip_used", "shots_per_sec",
                                             "전방손잡이 사용 여부 × shots/sec",
                                             "전방손잡이 사용", "전방손잡이 미사용")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
 
         if "split_time_sec" in dff.columns:
             fig = make_box_chart(
@@ -314,7 +314,7 @@ with tab_fg:
                 title="전방손잡이 사용 여부별 split time 분포",
                 color="front_grip_used",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig)
     else:
         st.info("front_grip_used 컬럼이 없거나 필터 후 데이터가 없습니다.")
 
@@ -326,13 +326,13 @@ with tab_st:
                 fig = make_grouped_bar_bool(dff, "stock_used", "avg_group_size_cm",
                                             "개머리판 사용 여부 × 평균 탄착군 크기 (cm)",
                                             "개머리판 사용", "개머리판 미사용")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
         with c2:
             if "accuracy_pct" in dff.columns:
                 fig = make_grouped_bar_bool(dff, "stock_used", "accuracy_pct",
                                             "개머리판 사용 여부 × 정확도 (%)",
                                             "개머리판 사용", "개머리판 미사용")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
     else:
         st.info("stock_used 컬럼이 없거나 필터 후 데이터가 없습니다.")
 
@@ -368,24 +368,24 @@ if "shooting_grip" in dff.columns:
             with tab_map["정확도"]:
                 fig = make_bar_chart(grip_agg, x="shooting_grip", y="accuracy_pct",
                                      title="사격 그립별 평균 정확도 (%)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
                 if "accuracy_pct" in dff.columns:
                     fig2 = make_violin_chart(dff, x="shooting_grip", y="accuracy_pct",
                                              title="사격 그립별 정확도 분포",
                                              color="shooting_grip")
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2)
 
         if "split time" in tab_map and "split_time_sec" in grip_agg.columns:
             with tab_map["split time"]:
                 fig = make_bar_chart(grip_agg, x="shooting_grip", y="split_time_sec",
                                      title="사격 그립별 평균 split time (초)")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
 
         if "shots/sec" in tab_map and "shots_per_sec" in grip_agg.columns:
             with tab_map["shots/sec"]:
                 fig = make_bar_chart(grip_agg, x="shooting_grip", y="shots_per_sec",
                                      title="사격 그립별 평균 shots/sec")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig)
 else:
     st.info("shooting_grip 컬럼이 없습니다.")
 
@@ -405,7 +405,7 @@ with env_c1:
             color="indoor_outdoor" if "indoor_outdoor" in dff.columns else None,
             trendline=True, opacity=0.55,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
 
 with env_c2:
     if "temperature_2m" in dff.columns and "shots_per_sec" in dff.columns:
@@ -415,7 +415,7 @@ with env_c2:
             color="indoor_outdoor" if "indoor_outdoor" in dff.columns else None,
             trendline=True, opacity=0.55,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig)
 
 if "distance_m" in dff.columns and "accuracy_pct" in dff.columns:
     fig = make_scatter_chart(
@@ -424,7 +424,7 @@ if "distance_m" in dff.columns and "accuracy_pct" in dff.columns:
         color="experience_level" if "experience_level" in dff.columns else None,
         trendline=True, opacity=0.55,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)
 
 st.markdown("---")
 
@@ -434,7 +434,7 @@ st.markdown("---")
 st.markdown("## 6. 데이터 미리보기")
 
 with st.expander("필터 적용 데이터 미리보기 (처음 200행)", expanded=False):
-    st.dataframe(dff.head(200), use_container_width=True)
+    st.dataframe(dff.head(200))
 
 csv_buf = io.StringIO()
 dff.to_csv(csv_buf, index=False, encoding="utf-8-sig")
