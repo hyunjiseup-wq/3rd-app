@@ -1,3 +1,5 @@
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://3rd-app-hyni5qqdxke7u3ffaqtw6j.streamlit.app/)
+
 # 에어소프트 성능 대시보드
 
 에어소프트 플레이어의 **전방 손잡이·개머리판 사용 여부** 및 **사격 그립**에 따른
