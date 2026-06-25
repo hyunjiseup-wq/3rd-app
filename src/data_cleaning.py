@@ -18,6 +18,48 @@ COLUMN_ALIASES: dict[str, list[str]] = {
     "stock_type": ["stock_type", "스톡종류", "개머리판종류"],
     "optics_used": ["optics_used", "optics", "조준경", "스코프", "광학장비", "조준경사용"],
     "optics_type": ["optics_type", "scope_type", "조준경종류", "스코프종류", "광학장비종류"],
+    # 파츠 교환 컬럼
+    "part_replaced_any": [
+        "part_replaced_any", "parts_replaced", "parts_changed",
+        "파츠교환", "파츠교환여부", "부품교환", "부품교체", "장비파츠교환",
+    ],
+    "barrel_replaced": [
+        "barrel_replaced", "barrel_changed", "barrel",
+        "배럴교환", "배럴교체", "이너배럴교환", "이너배럴교체",
+    ],
+    "hopup_replaced": [
+        "hopup_replaced", "hopup_changed", "hopup",
+        "홉업교환", "홉업교체",
+    ],
+    "motor_replaced": [
+        "motor_replaced", "motor_changed", "motor",
+        "모터교환", "모터교체",
+    ],
+    "spring_replaced": [
+        "spring_replaced", "spring_changed", "spring",
+        "스프링교환", "스프링교체",
+    ],
+    "gearbox_replaced": [
+        "gearbox_replaced", "gearbox_changed", "gearbox",
+        "기어박스교환", "기어박스교체",
+    ],
+    "battery_changed": [
+        "battery_changed", "battery_replaced", "battery",
+        "배터리변경", "배터리교체",
+    ],
+    "magazine_changed": [
+        "magazine_changed", "magazine_replaced", "magazine",
+        "탄창변경", "탄창교체",
+    ],
+    "parts_replaced_count": [
+        "parts_replaced_count", "parts_count", "changed_parts_count",
+        "교환파츠수", "교체파츠수", "변경파츠수",
+    ],
+    "part_setup_type": [
+        "part_setup_type", "setup_type", "parts_setup",
+        "파츠구성", "세팅유형", "장비구성",
+    ],
+    # 사격/성능
     "shooting_grip": ["shooting_grip", "grip_style", "사격그립", "그립자세", "grip"],
     "stance": ["stance", "자세", "사격자세", "position"],
     "distance_m": ["distance_m", "distance", "거리", "사거리_m", "사거리", "dist_m", "dist"],
@@ -44,13 +86,27 @@ NUMERIC_COLS = [
     "miss_count", "accuracy_pct", "split_time_sec", "shots_per_sec",
     "reaction_time_sec", "avg_group_size_cm", "equipment_weight_g",
     "temperature_2m", "relative_humidity_2m", "wind_speed_10m", "precipitation",
+    "parts_replaced_count",
 ]
 
-BOOL_COLS = ["front_grip_used", "stock_used", "optics_used"]
+BOOL_COLS = [
+    "front_grip_used", "stock_used", "optics_used",
+    "part_replaced_any",
+    "barrel_replaced", "hopup_replaced", "motor_replaced",
+    "spring_replaced", "gearbox_replaced",
+    "battery_changed", "magazine_changed",
+]
 
 CATEGORICAL_COLS = [
     "pistol_grip_type", "stock_type", "optics_type", "shooting_grip", "stance",
     "experience_level", "indoor_outdoor", "target_type",
+    "part_setup_type",
+]
+
+_PARTS_BOOL_COLS = [
+    "barrel_replaced", "hopup_replaced", "motor_replaced",
+    "spring_replaced", "gearbox_replaced",
+    "battery_changed", "magazine_changed",
 ]
 
 
@@ -81,7 +137,7 @@ def coerce_numeric(df: pd.DataFrame) -> pd.DataFrame:
 def coerce_bool(df: pd.DataFrame) -> pd.DataFrame:
     """불리언 컬럼을 True/False로 통일한다."""
     df = df.copy()
-    truthy = {"true", "1", "yes", "y", "예", "사용", "있음"}
+    truthy = {"true", "1", "yes", "y", "예", "사용", "있음", "교환", "교환있음", "교환 있음"}
     for col in BOOL_COLS:
         if col in df.columns:
             df[col] = df[col].astype(str).str.lower().str.strip().isin(truthy)
@@ -115,10 +171,37 @@ def fill_missing(df: pd.DataFrame) -> pd.DataFrame:
         "experience_level": "초보",
         "indoor_outdoor": "실외",
         "target_type": "고정표적",
+        "part_setup_type": "순정",
     }
     for col, default in cat_defaults.items():
         if col in df.columns:
             df[col] = df[col].fillna(default).astype(str)
+
+    # 파츠 bool 기본값: False
+    for col in _PARTS_BOOL_COLS + ["part_replaced_any"]:
+        if col in df.columns:
+            df[col] = df[col].fillna(False)
+
+    # parts_replaced_count 기본값: 0, 정수형
+    if "parts_replaced_count" in df.columns:
+        df["parts_replaced_count"] = (
+            pd.to_numeric(df["parts_replaced_count"], errors="coerce").fillna(0).astype(int)
+        )
+    elif any(c in df.columns for c in _PARTS_BOOL_COLS):
+        present = [c for c in _PARTS_BOOL_COLS if c in df.columns]
+        df["parts_replaced_count"] = sum(df[c].astype(int) for c in present)
+
+    # part_replaced_any 재계산 (없는 경우)
+    if "parts_replaced_count" in df.columns and "part_replaced_any" not in df.columns:
+        df["part_replaced_any"] = df["parts_replaced_count"] > 0
+
+    # part_setup_type 재계산 (없는 경우)
+    if "parts_replaced_count" in df.columns and "part_setup_type" not in df.columns:
+        df["part_setup_type"] = pd.cut(
+            df["parts_replaced_count"],
+            bins=[-1, 0, 2, 999],
+            labels=["순정", "일부 교환", "다수 교환"],
+        ).astype(str)
 
     return df
 

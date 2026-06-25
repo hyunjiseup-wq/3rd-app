@@ -16,6 +16,50 @@ from src.charts import (
     make_violin_chart,
 )
 
+# 파츠 종류 표시 이름 매핑 (내부 컬럼명 → 한글 표시명)
+PART_LABELS: dict[str, str] = {
+    "barrel_replaced":  "배럴 계열",
+    "hopup_replaced":   "홉업 계열",
+    "motor_replaced":   "모터",
+    "spring_replaced":  "스프링",
+    "gearbox_replaced": "기어박스",
+    "battery_changed":  "배터리",
+    "magazine_changed": "탄창",
+}
+SETUP_ORDER = ["순정", "일부 교환", "다수 교환"]
+
+
+def build_parts_summary(data: pd.DataFrame) -> pd.DataFrame:
+    """파츠 종류별 교환군/비교군 평균 성능 요약 테이블 생성.
+
+    이 데이터는 에어소프트 더미 데이터 기반 예시이며,
+    실제 성능 검증 결과가 아닙니다.
+    """
+    metrics = [
+        ("accuracy_pct",    "평균 명중률 (%)"),
+        ("shots_per_sec",   "평균 초당 발사 수"),
+        ("avg_group_size_cm", "평균 탄착군 (cm)"),
+    ]
+    rows = []
+    for col, label in PART_LABELS.items():
+        if col not in data.columns:
+            continue
+        row: dict = {"파츠 종류": label}
+        for m_col, m_label in metrics:
+            if m_col not in data.columns:
+                continue
+            g = data.groupby(col)[m_col].agg(["mean", "count"])
+            if True in g.index:
+                row[f"교환군 {m_label}"] = round(g.loc[True, "mean"], 2)
+            if False in g.index:
+                row[f"비교군 {m_label}"] = round(g.loc[False, "mean"], 2)
+        cnt = data[col].value_counts()
+        row["교환군 표본"] = int(cnt.get(True, 0))
+        row["비교군 표본"] = int(cnt.get(False, 0))
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 # ──────────────────────────────────────────────
 # 페이지 설정
 # ──────────────────────────────────────────────
@@ -71,8 +115,8 @@ st.markdown(
 st.title("🎯 에어소프트 성능 대시보드")
 st.markdown(
     """
-    이 대시보드는 에어소프트 플레이어의 **장비 사용 여부**와 **사격 그립 유형**에 따른
-    속도·정확도 변화를 탐색하기 위한 예시 분석 화면입니다.
+    이 대시보드는 에어소프트 플레이어의 **장비 사용 여부**, **파츠 교환 여부**, **사격 그립 유형**에 따른
+    속도·정확도 변화를 탐색하기 위한 더미 데이터 기반 예시 분석 화면입니다.
     현재 데이터는 업로드된 엑셀 또는 자동 생성된 **더미 데이터**를 사용합니다.
     """
 )
@@ -208,6 +252,16 @@ with st.sidebar:
     # 조준경
     op_sel = st.selectbox("조준경 사용 여부", ["전체", "사용", "미사용"])
 
+    # 파츠 교환 여부
+    part_sel = st.selectbox("파츠 교환 여부", ["전체", "교환 있음", "교환 없음"])
+
+    # 파츠 구성 유형
+    setup_opts = (
+        sorted(df["part_setup_type"].dropna().unique().tolist())
+        if "part_setup_type" in df.columns else []
+    )
+    setup_sel = st.multiselect("파츠 구성", options=setup_opts, default=setup_opts)
+
     # 사격 그립
     grip_opts = sorted(df["shooting_grip"].dropna().unique().tolist()) if "shooting_grip" in df.columns else []
     grip_sel = st.multiselect("사격 그립", options=grip_opts, default=grip_opts)
@@ -242,6 +296,12 @@ def apply_filters(data: pd.DataFrame) -> pd.DataFrame:
 
     if op_sel != "전체" and "optics_used" in d.columns:
         d = d[d["optics_used"] == (op_sel == "사용")]
+
+    if part_sel != "전체" and "part_replaced_any" in d.columns:
+        d = d[d["part_replaced_any"] == (part_sel == "교환 있음")]
+
+    if setup_sel and "part_setup_type" in d.columns:
+        d = d[d["part_setup_type"].isin(setup_sel)]
 
     if grip_sel and "shooting_grip" in d.columns:
         d = d[d["shooting_grip"].isin(grip_sel)]
@@ -403,9 +463,243 @@ with tab_op:
 st.markdown("---")
 
 # ──────────────────────────────────────────────
-# 섹션 4: 사격 그립별 비교
+# 섹션 4: 파츠 교환 여부별 성능 비교
 # ──────────────────────────────────────────────
-st.markdown("## 4. 사격 그립별 비교")
+st.markdown("## 4. 파츠 교환 여부별 성능 비교")
+st.caption(
+    "이 분석은 에어소프트 더미 데이터 기반 예시입니다. "
+    "파츠 교환 효과는 실제 성능 검증 결과가 아니라 더미 데이터 생성을 위한 약한 가정이며, "
+    "실제 장비 개조나 성능 향상을 보장하지 않습니다."
+)
+
+if "part_replaced_any" in dff.columns:
+    tab_p1, tab_p2, tab_p3, tab_p4, tab_combo = st.tabs(
+        ["교환 여부 비교", "파츠 구성 유형별", "개수별 비교", "파츠 종류별", "조준경 조합 분석"]
+    )
+
+    # ── 탭 4-1: 파츠 교환 여부별 KPI 비교 ────────────
+    with tab_p1:
+        st.markdown("#### 파츠 교환 여부(교환 있음 vs 교환 없음)별 주요 지표")
+        p1c1, p1c2 = st.columns(2)
+        with p1c1:
+            if "accuracy_pct" in dff.columns:
+                fig = make_grouped_bar_bool(
+                    dff, "part_replaced_any", "accuracy_pct",
+                    "파츠 교환 여부 × 평균 명중률 (%)",
+                    "교환 있음", "교환 없음",
+                )
+                st.plotly_chart(fig)
+            if "avg_group_size_cm" in dff.columns:
+                fig = make_grouped_bar_bool(
+                    dff, "part_replaced_any", "avg_group_size_cm",
+                    "파츠 교환 여부 × 평균 탄착군 크기 (cm)",
+                    "교환 있음", "교환 없음",
+                )
+                st.plotly_chart(fig)
+        with p1c2:
+            if "shots_per_sec" in dff.columns:
+                fig = make_grouped_bar_bool(
+                    dff, "part_replaced_any", "shots_per_sec",
+                    "파츠 교환 여부 × 평균 초당 발사 수",
+                    "교환 있음", "교환 없음",
+                )
+                st.plotly_chart(fig)
+            if "split_time_sec" in dff.columns:
+                fig = make_grouped_bar_bool(
+                    dff, "part_replaced_any", "split_time_sec",
+                    "파츠 교환 여부 × 평균 분할 시간 (초)",
+                    "교환 있음", "교환 없음",
+                )
+                st.plotly_chart(fig)
+
+    # ── 탭 4-2: 파츠 구성 유형별 비교 ────────────────
+    with tab_p2:
+        st.markdown("#### 파츠 구성 유형별 평균 성능 비교")
+        if "part_setup_type" in dff.columns:
+            present_order = [s for s in SETUP_ORDER if s in dff["part_setup_type"].unique()]
+            setup_agg = (
+                dff.groupby("part_setup_type")[
+                    [c for c in ["accuracy_pct", "shots_per_sec", "avg_group_size_cm"] if c in dff.columns]
+                ]
+                .mean()
+                .reindex(present_order)
+                .reset_index()
+            )
+
+            p2c1, p2c2 = st.columns(2)
+            with p2c1:
+                if "accuracy_pct" in setup_agg.columns:
+                    fig = make_bar_chart(
+                        setup_agg, x="part_setup_type", y="accuracy_pct",
+                        title="파츠 구성 유형별 평균 명중률 (%)",
+                    )
+                    st.plotly_chart(fig)
+            with p2c2:
+                if "shots_per_sec" in setup_agg.columns:
+                    fig = make_bar_chart(
+                        setup_agg, x="part_setup_type", y="shots_per_sec",
+                        title="파츠 구성 유형별 평균 초당 발사 수",
+                    )
+                    st.plotly_chart(fig)
+
+            if "avg_group_size_cm" in setup_agg.columns:
+                fig = make_bar_chart(
+                    setup_agg, x="part_setup_type", y="avg_group_size_cm",
+                    title="파츠 구성 유형별 평균 탄착군 크기 (cm)",
+                )
+                st.plotly_chart(fig)
+
+            if "accuracy_pct" in dff.columns:
+                fig = make_box_chart(
+                    dff, x="part_setup_type", y="accuracy_pct",
+                    title="파츠 구성 유형별 명중률 분포",
+                    color="part_setup_type",
+                )
+                st.plotly_chart(fig)
+        else:
+            st.info("part_setup_type 컬럼이 없습니다.")
+
+    # ── 탭 4-3: 교환 파츠 개수별 비교 ────────────────
+    with tab_p3:
+        st.markdown("#### 교환 파츠 개수별 평균 성능 비교")
+        if "parts_replaced_count" in dff.columns:
+            tmp = dff.copy()
+            tmp["교환 개수"] = pd.cut(
+                tmp["parts_replaced_count"],
+                bins=[-1, 0, 1, 2, 999],
+                labels=["0개", "1개", "2개", "3개 이상"],
+            ).astype(str)
+            count_order = ["0개", "1개", "2개", "3개 이상"]
+            present_cnt = [c for c in count_order if c in tmp["교환 개수"].unique()]
+            count_agg = (
+                tmp.groupby("교환 개수")[
+                    [c for c in ["accuracy_pct", "avg_group_size_cm", "shots_per_sec"] if c in tmp.columns]
+                ]
+                .mean()
+                .reindex(present_cnt)
+                .reset_index()
+            )
+
+            p3c1, p3c2 = st.columns(2)
+            with p3c1:
+                if "accuracy_pct" in count_agg.columns:
+                    fig = make_bar_chart(
+                        count_agg, x="교환 개수", y="accuracy_pct",
+                        title="교환 파츠 개수별 평균 명중률 (%)",
+                    )
+                    st.plotly_chart(fig)
+            with p3c2:
+                if "avg_group_size_cm" in count_agg.columns:
+                    fig = make_bar_chart(
+                        count_agg, x="교환 개수", y="avg_group_size_cm",
+                        title="교환 파츠 개수별 평균 탄착군 크기 (cm)",
+                    )
+                    st.plotly_chart(fig)
+
+            if "shots_per_sec" in count_agg.columns:
+                fig = make_bar_chart(
+                    count_agg, x="교환 개수", y="shots_per_sec",
+                    title="교환 파츠 개수별 평균 초당 발사 수",
+                )
+                st.plotly_chart(fig)
+        else:
+            st.info("parts_replaced_count 컬럼이 없습니다.")
+
+    # ── 탭 4-4: 파츠 종류별 비교 ─────────────────────
+    with tab_p4:
+        st.markdown("#### 파츠 종류별 교환군 vs 비교군 성능 요약")
+        st.caption("각 파츠를 교환한 세션(교환군)과 교환하지 않은 세션(비교군)의 평균 성능 지표를 비교합니다.")
+
+        summary_df = build_parts_summary(dff)
+        if not summary_df.empty:
+            st.dataframe(summary_df, hide_index=True)
+
+            # 파츠 종류별 교환군 평균 명중률 막대 차트
+            acc_col = "교환군 평균 명중률 (%)"
+            if acc_col in summary_df.columns:
+                fig = make_bar_chart(
+                    summary_df.dropna(subset=[acc_col]),
+                    x="파츠 종류", y=acc_col,
+                    title="파츠 종류별 교환군 평균 명중률 (%)",
+                )
+                st.plotly_chart(fig)
+
+            grp_col = "교환군 평균 탄착군 (cm)"
+            if grp_col in summary_df.columns:
+                fig = make_bar_chart(
+                    summary_df.dropna(subset=[grp_col]),
+                    x="파츠 종류", y=grp_col,
+                    title="파츠 종류별 교환군 평균 탄착군 크기 (cm)",
+                )
+                st.plotly_chart(fig)
+        else:
+            st.info("파츠 종류별 컬럼이 데이터에 없습니다.")
+
+    # ── 탭 4-5: 조준경 + 파츠 교환 조합 분석 ──────────
+    with tab_combo:
+        st.markdown("#### 조준경과 파츠 교환 조합 분석")
+        st.caption(
+            "조준경 사용 여부와 파츠 교환 여부를 조합한 4가지 경우의 평균 성능을 비교합니다. "
+            "이 분석은 시각화 목적의 가상 데이터 예시입니다."
+        )
+
+        if "optics_used" in dff.columns and "part_replaced_any" in dff.columns:
+            combo = dff.copy()
+            combo["조준경"] = combo["optics_used"].map({True: "사용", False: "미사용"})
+            combo["파츠교환"] = combo["part_replaced_any"].map({True: "교환 있음", False: "교환 없음"})
+
+            metrics_combo = [
+                ("accuracy_pct",      "평균 명중률 (%)"),
+                ("avg_group_size_cm", "평균 탄착군 크기 (cm)"),
+                ("shots_per_sec",     "평균 초당 발사 수"),
+            ]
+            for m_col, m_label in metrics_combo:
+                if m_col not in combo.columns:
+                    continue
+
+                # 피벗 테이블
+                pivot = (
+                    combo.pivot_table(
+                        index="조준경", columns="파츠교환",
+                        values=m_col, aggfunc="mean",
+                    )
+                    .round(2)
+                )
+                col_order = [c for c in ["교환 있음", "교환 없음"] if c in pivot.columns]
+                pivot = pivot[col_order]
+
+                st.markdown(f"**{m_label}**")
+                st.dataframe(pivot)
+
+                # 그룹별 막대 차트
+                combo_agg = (
+                    combo.groupby(["조준경", "파츠교환"])[m_col]
+                    .mean()
+                    .reset_index()
+                    .rename(columns={m_col: m_label})
+                )
+                fig = make_bar_chart(
+                    combo_agg, x="조준경", y=m_label,
+                    title=f"조준경·파츠교환 조합별 {m_label}",
+                    color="파츠교환",
+                )
+                st.plotly_chart(fig)
+                st.markdown("---")
+        else:
+            st.info("optics_used 또는 part_replaced_any 컬럼이 없습니다.")
+
+else:
+    st.info(
+        "파츠 교환 관련 컬럼(part_replaced_any)이 없습니다. "
+        "더미 데이터를 사용하거나 파츠 컬럼이 포함된 엑셀 파일을 업로드하세요."
+    )
+
+st.markdown("---")
+
+# ──────────────────────────────────────────────
+# 섹션 5: 사격 그립별 비교
+# ──────────────────────────────────────────────
+st.markdown("## 5. 사격 그립별 비교")
 
 if "shooting_grip" in dff.columns:
     grip_agg = (
@@ -455,9 +749,9 @@ else:
 st.markdown("---")
 
 # ──────────────────────────────────────────────
-# 섹션 5: 환경 조건 영향
+# 섹션 6: 환경 조건 영향
 # ──────────────────────────────────────────────
-st.markdown("## 5. 환경 조건 영향")
+st.markdown("## 6. 환경 조건 영향")
 
 env_c1, env_c2 = st.columns(2)
 with env_c1:
@@ -494,9 +788,9 @@ if "distance_m" in dff.columns and "accuracy_pct" in dff.columns:
 st.markdown("---")
 
 # ──────────────────────────────────────────────
-# 섹션 6: 데이터 미리보기 및 다운로드
+# 섹션 7: 데이터 미리보기 및 다운로드
 # ──────────────────────────────────────────────
-st.markdown("## 6. 데이터 미리보기")
+st.markdown("## 7. 데이터 미리보기")
 
 with st.expander("필터 적용 데이터 미리보기 (처음 200행)", expanded=False):
     st.dataframe(dff.head(200))
@@ -513,9 +807,9 @@ st.download_button(
 st.markdown("---")
 
 # ──────────────────────────────────────────────
-# 섹션 7: 해석 주의사항
+# 섹션 8: 해석 주의사항
 # ──────────────────────────────────────────────
-st.markdown("## 7. 해석 주의사항")
+st.markdown("## 8. 해석 주의사항")
 st.info(
     """
     **이 대시보드에 대하여:**
@@ -523,6 +817,8 @@ st.info(
     - 이 저장소에는 민감한 원본 데이터 파일을 포함하지 않습니다.
     - 더미 데이터는 실제 과학적 성능 검증 데이터가 아닙니다. 시각화 목적으로 생성된 예시입니다.
     - 차트에서 보이는 경향은 인과관계가 아닌 상관관계이며, 과학적 결론으로 해석하지 마세요.
+    - **파츠 교환 효과는 실제 성능 검증 결과가 아니라 더미 데이터 생성을 위한 약한 가정입니다.**
+    - **이 분석은 실제 장비 개조나 성능 향상을 보장하지 않습니다.**
     - 이 프로젝트는 에어소프트 스포츠/취미 활동의 장비 사용 유형 탐색을 목적으로 합니다.
     - 실제 화기 개조, 위력 증가, 살상력, 불법 무기 제작과 관련된 정보를 다루지 않습니다.
     """,
@@ -540,6 +836,16 @@ with st.expander("컬럼 설명"):
         | `stock_type` | 개머리판 유형 (고정형/조절형/접이식/없음) |
         | `optics_used` | 조준경 사용 여부 |
         | `optics_type` | 조준경 종류 (단렌즈 스코프/복합 조준경/홀로사이트/도트사이트/맨눈) |
+        | `part_replaced_any` | 에어소프트 장비 파츠 교환 여부 |
+        | `barrel_replaced` | 배럴 계열 교환 여부 |
+        | `hopup_replaced` | 홉업 계열 교환 여부 |
+        | `motor_replaced` | 모터 교환 여부 |
+        | `spring_replaced` | 스프링 교환 여부 |
+        | `gearbox_replaced` | 기어박스 계열 교환 여부 |
+        | `battery_changed` | 배터리 변경 여부 |
+        | `magazine_changed` | 탄창 변경 여부 |
+        | `parts_replaced_count` | 교환/변경된 파츠 개수 |
+        | `part_setup_type` | 파츠 구성 유형 (순정 / 일부 교환 / 다수 교환) |
         | `shooting_grip` | 사격 그립 자세 (C-클램프/매그웰/전통형 등) |
         | `accuracy_pct` | 명중률 (%) = 명중수 / 발사수 × 100 |
         | `shots_per_sec` | 초당 발사 수 |
