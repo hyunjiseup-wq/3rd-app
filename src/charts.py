@@ -6,13 +6,21 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-# 공통 색상 팔레트
-PRIMARY = "#2F6B5F"
-SECONDARY = "#5BA39B"
-ACCENT = "#A8D5CF"
-PALETTE = [PRIMARY, SECONDARY, ACCENT, "#7EC8A4", "#B5D5C5", "#3D8B7A"]
+# 공통 색상 팔레트 — 색상환을 고르게 분산해 범주별 명확한 구분
+PRIMARY   = "#2F6B5F"  # 다크 틸 (테마 기준색 유지)
+SECONDARY = "#E07B54"  # 웜 오렌지
+ACCENT    = "#4B8FC7"  # 미디엄 블루
+PALETTE   = [
+    PRIMARY,    # 다크 틸
+    SECONDARY,  # 오렌지
+    ACCENT,     # 블루
+    "#D4A843",  # 앰버/골드
+    "#9B6BC9",  # 퍼플
+    "#6BAF5A",  # 리프 그린
+]
 
-BOOL_COLOR_MAP = {True: PRIMARY, False: "#C5D8D5", "True": PRIMARY, "False": "#C5D8D5"}
+# True/False 비교 차트: 틸(True) vs 오렌지(False) — 보색 대비
+BOOL_COLOR_MAP = {True: PRIMARY, False: SECONDARY, "True": PRIMARY, "False": SECONDARY}
 
 
 def _base_layout(fig: go.Figure, title: str) -> go.Figure:
